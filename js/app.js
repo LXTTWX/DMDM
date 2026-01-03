@@ -10,7 +10,6 @@ class RollCallApp {
         this.isRolling = false;
         this.currentMode = 'single'; // 单次点名 or 连续点名
         this.currentAlgorithm = 'fair';
-        this.avoidImmediateRepeat = false;
         this.selectedStudent = null;
         this.autoStopTimer = null;
         this.isAnimating = false;
@@ -256,12 +255,7 @@ class RollCallApp {
                 }
             }
             
-            // 更新避免立即重复设置
-            this.avoidImmediateRepeat = settings.avoidImmediateRepeat || false;
-            const avoidRepeatCheckbox = document.getElementById('avoidImmediateRepeat');
-            if (avoidRepeatCheckbox) {
-                avoidRepeatCheckbox.checked = this.avoidImmediateRepeat;
-            }
+
             
             // 更新主题
             if (settings.theme) {
@@ -305,6 +299,9 @@ class RollCallApp {
                     await this.loadStudents();
                 }
             }
+            
+            // 更新班级操作按钮状态
+            this.updateClassButtons();
             
             console.log(`已加载 ${classes.length} 个班级`);
         } catch (error) {
@@ -401,11 +398,7 @@ class RollCallApp {
             new Date(student.lastCalled).toLocaleDateString('zh-CN') : 
             '从未';
         
-        // 获取学生特殊状态
-        const specialStatus = student.specialStatus || 'normal';
-        const statusText = specialStatus === 'special_excluded' ? '特殊排除' : '正常状态';
-        const statusClass = specialStatus === 'special_excluded' ? 'status-excluded' : 'status-normal';
-        const statusIcon = specialStatus === 'special_excluded' ? 'fas fa-user-shield' : 'fas fa-user';
+
         
         card.innerHTML = `
             <div class="student-card-header">
@@ -434,16 +427,7 @@ class RollCallApp {
                         <span class="info-value">${student.email || '未设置'}</span>
                     </div>
                 </div>
-                <div class="student-special-status">
-                    <div class="status-indicator ${statusClass}">
-                        <i class="${statusIcon}"></i>
-                        <span>${statusText}</span>
-                    </div>
-                    <button class="btn btn-small btn-outline" onclick="app.showSpecialRuleModal(${student.id})" title="管理特殊规则">
-                        <i class="fas fa-cog"></i>
-                        特殊规则
-                    </button>
-                </div>
+
                 <div class="student-stats">
                     <div class="stat">
                         <i class="fas fa-hand-pointer"></i>
@@ -636,11 +620,7 @@ class RollCallApp {
             this.searchStudents(e.target.value);
         });
         
-        // 避免立即重复复选框
-        document.getElementById('avoidImmediateRepeat').addEventListener('change', (e) => {
-            this.avoidImmediateRepeat = e.target.checked;
-            window.storageManager.saveSetting('avoidImmediateRepeat', this.avoidImmediateRepeat);
-        });
+
         
         // 主题颜色选择
         document.querySelectorAll('.theme-color').forEach(button => {
@@ -747,8 +727,7 @@ class RollCallApp {
             // 选择学生
             const selectedStudent = await window.callAlgorithm.selectStudent(
                 this.currentStudents,
-                this.currentAlgorithm,
-                { avoidImmediateRepeat: this.avoidImmediateRepeat }
+                this.currentAlgorithm
             );
             
             if (!selectedStudent) {
@@ -1035,6 +1014,60 @@ class RollCallApp {
         } catch (error) {
             console.error('更新班级失败:', error);
             this.showNotification('更新班级失败', 'error');
+        }
+    }
+
+    /**
+     * 确认删除班级
+     */
+    async confirmDeleteClass() {
+        if (!this.currentClassId) {
+            this.showNotification('请先选择班级', 'warning');
+            return;
+        }
+        
+        try {
+            const currentClass = await window.storageManager.getClassById(this.currentClassId);
+            const modal = document.getElementById('modalOverlay');
+            const title = document.getElementById('modalTitle');
+            const body = document.getElementById('modalBody');
+            const confirm = document.getElementById('modalConfirm');
+            
+            title.textContent = '删除班级';
+            body.innerHTML = `<p>确定要删除班级"${currentClass.name}"吗？此操作将同时删除班级内所有学生数据，且无法恢复。</p>`;
+            confirm.textContent = '确认删除';
+            confirm.onclick = () => { this.deleteClass(currentClass); };
+            modal.style.display = 'flex';
+        } catch (error) {
+            console.error('获取班级信息失败:', error);
+            this.showNotification('获取班级信息失败', 'error');
+        }
+    }
+
+    /**
+     * 删除班级
+     * @param {Object} currentClass - 当前要删除的班级信息
+     */
+    async deleteClass(currentClass) {
+        try {
+            await window.storageManager.deleteClass(this.currentClassId);
+            this.currentClassId = null;
+            await this.loadClasses();
+            this.loadStudents(); // 清空学生列表
+            this.updateClassButtons();
+            this.closeModal();
+            this.showNotification('班级删除成功', 'success');
+            
+            // 记录操作，包含原始班级数据用于撤销
+            this.recordOperation({
+                type: 'deleteClass',
+                data: { id: currentClass.id },
+                undoData: currentClass,
+                timestamp: Date.now()
+            });
+        } catch (error) {
+            console.error('删除班级失败:', error);
+            this.showNotification('删除班级失败', 'error');
         }
     }
 
@@ -1840,190 +1873,7 @@ class RollCallApp {
         overlay.style.display = 'none';
     }
 
-    /**
-     * 显示特殊规则配置模态框
-     * @param {number} studentId - 学生ID
-     */
-    async showSpecialRuleModal(studentId) {
-        try {
-            const student = this.currentStudents.find(s => s.id === studentId);
-            if (!student) {
-                this.showNotification('学生信息不存在', 'error');
-                return;
-            }
 
-            const modal = document.getElementById('modalOverlay');
-            const modalTitle = document.getElementById('modalTitle');
-            const modalBody = document.getElementById('modalBody');
-            const modalConfirm = document.getElementById('modalConfirm');
-            const modalCancel = document.getElementById('modalCancel');
-
-            // 设置模态框标题
-            modalTitle.textContent = `特殊规则配置 - ${student.name}`;
-            
-            // 渲染特殊规则配置界面
-            modalBody.innerHTML = this.renderSpecialRuleModal(student);
-
-            // 绑定确认按钮事件
-            modalConfirm.onclick = async () => {
-                const status = document.querySelector('input[name="specialStatus"]:checked')?.value;
-                const operator = document.getElementById('operatorInput')?.value || 'system';
-                
-                if (!status) {
-                    this.showNotification('请选择特殊状态', 'warning');
-                    return;
-                }
-
-                try {
-                    await this.configureSpecialRule(studentId, status, operator);
-                    this.hideModal();
-                    this.showNotification('特殊规则配置成功', 'success');
-                    this.renderStudentsList(); // 刷新学生列表
-                } catch (error) {
-                    console.error('配置特殊规则失败:', error);
-                    this.showNotification('配置特殊规则失败', 'error');
-                }
-            };
-
-            // 绑定取消按钮事件
-            modalCancel.onclick = () => this.hideModal();
-
-            this.showModal();
-
-        } catch (error) {
-            console.error('显示特殊规则模态框失败:', error);
-            this.showNotification('显示特殊规则配置失败', 'error');
-        }
-    }
-
-    /**
-     * 渲染特殊规则配置模态框内容
-     * @param {Object} student - 学生对象
-     * @returns {string} HTML内容
-     */
-    renderSpecialRuleModal(student) {
-        const currentStatus = student.specialStatus || 'normal';
-        const isExcluded = currentStatus === 'special_excluded';
-        
-        return `
-            <div class="special-rule-config">
-                <div class="config-section">
-                    <h4>学生信息</h4>
-                    <div class="student-info-display">
-                        <div class="info-row">
-                            <span class="label">姓名:</span>
-                            <span class="value">${student.name}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="label">学号:</span>
-                            <span class="value">${student.studentId || '未设置'}</span>
-                        </div>
-                        <div class="info-row">
-                            <span class="label">当前状态:</span>
-                            <span class="value ${isExcluded ? 'status-excluded' : 'status-normal'}">
-                                <i class="${isExcluded ? 'fas fa-user-shield' : 'fas fa-user'}"></i>
-                                ${isExcluded ? '特殊排除' : '正常状态'}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <h4>特殊状态配置</h4>
-                    <div class="status-options">
-                        <label class="status-option">
-                            <input type="radio" name="specialStatus" value="normal" ${!isExcluded ? 'checked' : ''}>
-                            <div class="option-content">
-                                <i class="fas fa-user"></i>
-                                <div class="option-text">
-                                    <div class="option-title">正常状态</div>
-                                    <div class="option-desc">该学生参与所有点名模式</div>
-                                </div>
-                            </div>
-                        </label>
-                        
-                        <label class="status-option">
-                            <input type="radio" name="specialStatus" value="special_excluded" ${isExcluded ? 'checked' : ''}>
-                            <div class="option-content">
-                                <i class="fas fa-user-shield"></i>
-                                <div class="option-text">
-                                    <div class="option-title">特殊排除</div>
-                                    <div class="option-desc">该学生仅在"公平随机"模式下被选中，其他模式下自动排除</div>
-                                </div>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <h4>操作信息</h4>
-                    <div class="operator-input">
-                        <label>操作人员:</label>
-                        <input type="text" id="operatorInput" placeholder="请输入操作人员姓名" value="system">
-                    </div>
-                    <div class="config-note">
-                        <i class="fas fa-info-circle"></i>
-                        <span>配置变更将记录在系统日志中，包含操作时间和操作人员信息</span>
-                    </div>
-                </div>
-
-                <div class="config-section">
-                    <h4>影响说明</h4>
-                    <div class="impact-info">
-                        <div class="impact-item">
-                            <i class="fas fa-check-circle text-success"></i>
-                            <span>正常状态：参与所有点名算法</span>
-                        </div>
-                        <div class="impact-item">
-                            <i class="fas fa-shield-alt text-warning"></i>
-                            <span>特殊排除：仅参与公平随机算法，其他算法自动排除</span>
-                        </div>
-                        <div class="impact-item">
-                            <i class="fas fa-database text-info"></i>
-                            <span>配置数据持久化保存，重启后仍然有效</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * 配置学生特殊规则
-     * @param {number} studentId - 学生ID
-     * @param {string} status - 特殊状态
-     * @param {string} operator - 操作人员
-     * @returns {Promise<boolean>} 配置结果
-     */
-    async configureSpecialRule(studentId, status, operator = 'system') {
-        try {
-            if (!window.storageManager) {
-                throw new Error('存储管理器未初始化');
-            }
-
-            // 调用存储管理器设置学生特殊状态
-            const result = await window.storageManager.setStudentSpecialStatus(studentId, status, operator);
-            
-            if (result) {
-                // 更新本地学生数据
-                const studentIndex = this.currentStudents.findIndex(s => s.id === studentId);
-                if (studentIndex !== -1) {
-                    this.currentStudents[studentIndex].specialStatus = status;
-                }
-                
-                // 记录操作日志
-                console.log(`学生 ${studentId} 的特殊状态已设置为: ${status}, 操作人员: ${operator}`);
-                
-                return true;
-            }
-            
-            return false;
-            
-        } catch (error) {
-            console.error('配置学生特殊规则失败:', error);
-            throw error;
-        }
-    }
 }
 
 // 创建应用实例

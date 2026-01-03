@@ -7,19 +7,9 @@ class CallAlgorithm {
     constructor(storageManager) {
         this.storageManager = storageManager;
         this.lastSelectedStudent = null;
-        this.selectedStudents = new Set();
-        this.avoidImmediateRepeat = false;
     }
 
-    /**
-     * 设置是否避免立即重复
-     */
-    setAvoidImmediateRepeat(avoid) {
-        this.avoidImmediateRepeat = avoid;
-        if (!avoid) {
-            this.selectedStudents.clear();
-        }
-    }
+
 
     /**
      * 重置选择状态
@@ -42,19 +32,6 @@ class CallAlgorithm {
         // 如果只有一个学生，直接返回
         if (students.length === 1) {
             return students[0];
-        }
-
-        // 如果启用了避免立即重复，且已经选择过学生
-        if (this.avoidImmediateRepeat && this.selectedStudents.size < students.length - 1) {
-            // 过滤掉已经选择过的学生
-            const availableStudents = students.filter(student => 
-                !this.selectedStudents.has(student.id)
-            );
-            
-            if (availableStudents.length > 0) {
-                const randomIndex = Math.floor(Math.random() * availableStudents.length);
-                return availableStudents[randomIndex];
-            }
         }
 
         // 正常随机选择
@@ -87,14 +64,7 @@ class CallAlgorithm {
             return { student, weight };
         });
 
-        // 如果启用了避免立即重复，给未选择的学生额外权重
-        if (this.avoidImmediateRepeat && this.selectedStudents.size < students.length - 1) {
-            studentsWithWeights.forEach(item => {
-                if (!this.selectedStudents.has(item.student.id)) {
-                    item.weight *= 2; // 未选择的学生获得双倍权重
-                }
-            });
-        }
+
 
         // 使用权重随机选择
         return this.selectByWeight(studentsWithWeights);
@@ -120,35 +90,8 @@ class CallAlgorithm {
             const callCountA = a.callCount || 0;
             const callCountB = b.callCount || 0;
             
-            // 如果启用了避免立即重复，优先选择未选择过的学生
-            if (this.avoidImmediateRepeat) {
-                const selectedA = this.selectedStudents.has(a.id);
-                const selectedB = this.selectedStudents.has(b.id);
-                
-                if (selectedA && !selectedB) return 1;
-                if (!selectedA && selectedB) return -1;
-            }
-            
             return callCountA - callCountB;
         });
-
-        // 如果启用了避免立即重复且还有未选择的学生
-        if (this.avoidImmediateRepeat) {
-            const unselectedStudents = sortedStudents.filter(student => 
-                !this.selectedStudents.has(student.id)
-            );
-            
-            if (unselectedStudents.length > 0) {
-                // 在最少被点名的学生中随机选择
-                const minCallCount = Math.min(...unselectedStudents.map(s => s.callCount || 0));
-                const leastCalledStudents = unselectedStudents.filter(s => 
-                    (s.callCount || 0) === minCallCount
-                );
-                
-                const randomIndex = Math.floor(Math.random() * leastCalledStudents.length);
-                return leastCalledStudents[randomIndex];
-            }
-        }
 
         // 从最少被点名的学生中随机选择
         const minCallCount = Math.min(...sortedStudents.map(s => s.callCount || 0));
@@ -184,12 +127,7 @@ class CallAlgorithm {
         const lastIndex = students.findIndex(s => s.id === this.lastSelectedStudent);
         let nextIndex = (lastIndex + 1) % students.length;
 
-        // 如果启用避免立即重复，跳过刚刚选择过的学生
-        if (this.avoidImmediateRepeat && this.selectedStudents.size >= students.length - 1) {
-            // 如果所有学生都选择过了，重置选择状态
-            this.selectedStudents.clear();
-            return students[nextIndex];
-        }
+
 
         return students[nextIndex];
     }
@@ -229,10 +167,7 @@ class CallAlgorithm {
             // 考虑被点名次数少的优先
             score += (students.length - callCount) * 2;
             
-            // 如果启用了避免立即重复，给未选择的学生额外得分
-            if (this.avoidImmediateRepeat && !this.selectedStudents.has(student.id)) {
-                score += 10;
-            }
+
             
             return { student, score };
         });
@@ -323,23 +258,8 @@ class CallAlgorithm {
             return null;
         }
 
-        // 更新设置
-        this.setAvoidImmediateRepeat(options.avoidImmediateRepeat || false);
-
-        // 过滤学生：非完全随机模式下排除具有特殊状态的学生
-        let availableStudents = [...students];
-        if (algorithm !== 'fair' && this.storageManager) {
-            // 过滤掉具有特殊排除状态的学生
-            availableStudents = await this.filterStudentsBySpecialStatus(availableStudents, algorithm);
-            
-            // 如果过滤后没有可用学生，提示用户
-            if (availableStudents.length === 0) {
-                console.warn('所有学生都被设置为特殊排除状态，无法进行点名');
-                return null;
-            }
-        }
-
         let selectedStudent;
+        let availableStudents = [...students];
 
         switch (algorithm) {
             case 'fair':
@@ -367,43 +287,12 @@ class CallAlgorithm {
         // 更新选择状态
         if (selectedStudent) {
             this.lastSelectedStudent = selectedStudent.id;
-            if (this.avoidImmediateRepeat) {
-                this.selectedStudents.add(selectedStudent.id);
-                
-                // 如果所有学生都选择过，重置选择状态
-                if (this.selectedStudents.size >= availableStudents.length) {
-                    this.selectedStudents.clear();
-                }
-            }
         }
 
         return selectedStudent;
     }
 
-    /**
-     * 根据学生特殊状态过滤学生列表
-     * @param {Array} students - 学生数组
-     * @param {string} algorithm - 当前使用的算法
-     * @returns {Promise<Array>} 过滤后的学生数组
-     */
-    async filterStudentsBySpecialStatus(students, algorithm) {
-        if (!this.storageManager || algorithm === 'fair') {
-            return students;
-        }
 
-        const filteredStudents = [];
-        
-        for (const student of students) {
-            // 检查学生是否应被排除
-            const shouldExclude = await this.storageManager.shouldExcludeStudent(student.id, algorithm);
-            
-            if (!shouldExclude) {
-                filteredStudents.push(student);
-            }
-        }
-        
-        return filteredStudents;
-    }
 
     /**
      * 批量选择多个学生（不重复）
@@ -420,10 +309,6 @@ class CallAlgorithm {
 
         const selected = [];
         const availableStudents = [...students];
-        const originalAvoidRepeat = this.avoidImmediateRepeat;
-
-        // 批量选择时临时启用避免重复
-        this.setAvoidImmediateRepeat(true);
 
         for (let i = 0; i < Math.min(count, students.length); i++) {
             const selectedStudent = this.selectStudent(availableStudents, algorithm, options);
@@ -436,9 +321,6 @@ class CallAlgorithm {
                 }
             }
         }
-
-        // 恢复原始设置
-        this.setAvoidImmediateRepeat(originalAvoidRepeat);
 
         return selected;
     }

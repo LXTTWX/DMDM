@@ -328,8 +328,7 @@ class ImportExportManager {
                 studentId: data.studentId,
                 phone: data.phone,
                 email: data.email,
-                notes: data.notes,
-                specialStatus: 'normal'
+                notes: data.notes
             }));
 
             const importResult = await window.storageManager.addStudentsBatch(classId, studentsData);
@@ -356,7 +355,7 @@ class ImportExportManager {
      * @returns {string} CSV 格式的字符串
      */
     exportToCSV(students) {
-        const headers = ['姓名', '学号', '电话', '邮箱', '备注', '点名次数', '最后点名时间', '特殊状态'];
+        const headers = ['姓名', '学号', '电话', '邮箱', '备注', '点名次数', '最后点名时间'];
         const rows = [headers.join(',')];
 
         students.forEach(student => {
@@ -367,8 +366,7 @@ class ImportExportManager {
                 this.escapeCSVField(student.email || ''),
                 this.escapeCSVField(student.notes || ''),
                 student.callCount || 0,
-                student.lastCalled ? new Date(student.lastCalled).toLocaleDateString('zh-CN') : '从未',
-                student.specialStatus === 'special_excluded' ? '特殊排除' : '正常'
+                student.lastCalled ? new Date(student.lastCalled).toLocaleDateString('zh-CN') : '从未'
             ];
             rows.push(row.join(','));
         });
@@ -408,8 +406,7 @@ class ImportExportManager {
             '备注': student.notes || '',
             '点名次数': student.callCount || 0,
             '最后点名时间': student.lastCalled ? 
-                new Date(student.lastCalled).toLocaleString('zh-CN') : '从未',
-            '特殊状态': student.specialStatus === 'special_excluded' ? '特殊排除' : '正常'
+                new Date(student.lastCalled).toLocaleString('zh-CN') : '从未'
         }));
 
         const worksheet = XLSX.utils.json_to_sheet(data);
@@ -423,8 +420,7 @@ class ImportExportManager {
             { wch: 25 },
             { wch: 30 },
             { wch: 10 },
-            { wch: 20 },
-            { wch: 10 }
+            { wch: 20 }
         ];
         worksheet['!cols'] = columnWidths;
 
@@ -450,17 +446,12 @@ class ImportExportManager {
             font-family: 'Microsoft YaHei', Arial, sans-serif;
         `;
 
-        const statusCounts = {
-            normal: students.filter(s => s.specialStatus !== 'special_excluded').length,
-            excluded: students.filter(s => s.specialStatus === 'special_excluded').length
-        };
-
         container.innerHTML = `
             <div style="text-align: center; margin-bottom: 30px;">
                 <h1 style="color: #333; margin: 0 0 10px 0; font-size: 28px;">${className}</h1>
                 <p style="color: #666; margin: 0; font-size: 14px;">导出时间: ${new Date().toLocaleString('zh-CN')}</p>
                 <p style="color: #888; margin: 5px 0 0 0; font-size: 12px;">
-                    共 ${students.length} 人 (正常: ${statusCounts.normal}人, 特殊排除: ${statusCounts.excluded}人)
+                    共 ${students.length} 人
                 </p>
             </div>
             <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
@@ -471,27 +462,16 @@ class ImportExportManager {
                         <th style="border: 1px solid #ddd; padding: 10px; text-align: left; width: 80px;">学号</th>
                         <th style="border: 1px solid #ddd; padding: 10px; text-align: left; width: 120px;">电话</th>
                         <th style="border: 1px solid #ddd; padding: 10px; text-align: center; width: 60px;">点名次数</th>
-                        <th style="border: 1px solid #ddd; padding: 10px; text-align: center; width: 70px;">状态</th>
                     </tr>
                 </thead>
                 <tbody>
                     ${students.map((student, index) => `
                         <tr style="background: ${index % 2 === 0 ? '#fff' : '#fafafa'};">
                             <td style="border: 1px solid #ddd; padding: 8px;">${index + 1}</td>
-                            <td style="border: 1px solid #ddd; padding: 8px; ${student.specialStatus === 'special_excluded' ? 'color: #999; text-decoration: line-through;' : ''}">${student.name}</td>
+                            <td style="border: 1px solid #ddd; padding: 8px;">${student.name}</td>
                             <td style="border: 1px solid #ddd; padding: 8px;">${student.studentId || '-'}</td>
                             <td style="border: 1px solid #ddd; padding: 8px;">${student.phone || '-'}</td>
                             <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">${student.callCount || 0}</td>
-                            <td style="border: 1px solid #ddd; padding: 8px; text-align: center;">
-                                <span style="
-                                    display: inline-block;
-                                    padding: 2px 8px;
-                                    border-radius: 3px;
-                                    font-size: 11px;
-                                    background: ${student.specialStatus === 'special_excluded' ? '#fee' : '#e8f5e9'};
-                                    color: ${student.specialStatus === 'special_excluded' ? '#c00' : '#2e7d32'};
-                                ">${student.specialStatus === 'special_excluded' ? '排除' : '正常'}</span>
-                            </td>
                         </tr>
                     `).join('')}
                 </tbody>

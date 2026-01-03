@@ -271,7 +271,6 @@ class StorageManager {
             notes: studentData.notes || '',
             callCount: 0,
             lastCalled: null,
-            specialStatus: studentData.specialStatus || 'normal', // normal, special_excluded
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
         };
@@ -365,63 +364,13 @@ class StorageManager {
         return await this.operation('students', 'put', updatedStudent);
     }
 
-    /**
-     * 设置学生特殊状态
-     * @param {number} studentId - 学生ID
-     * @param {string} status - 特殊状态：'normal'（正常）或'special_excluded'（特殊排除）
-     * @param {string} operator - 操作人员信息
-     * @returns {Promise<boolean>} 操作结果
-     */
-    async setStudentSpecialStatus(studentId, status, operator = 'system') {
-        if (status !== 'normal' && status !== 'special_excluded') {
-            throw new Error('无效的特殊状态');
-        }
 
-        // 记录操作日志
-        await this.logSystemAction('SET_STUDENT_SPECIAL_STATUS', {
-            studentId,
-            status,
-            operator,
-            timestamp: new Date().toISOString()
-        });
 
-        // 更新学生特殊状态
-        return await this.updateStudent(parseInt(studentId), { specialStatus: status });
-    }
 
-    /**
-     * 获取学生特殊状态
-     * @param {number} studentId - 学生ID
-     * @returns {Promise<string>} 特殊状态
-     */
-    async getStudentSpecialStatus(studentId) {
-        const student = await this.getStudentById(parseInt(studentId));
-        return student ? student.specialStatus : 'normal';
-    }
 
-    /**
-     * 获取所有有特殊状态的学生
-     * @returns {Promise<Array>} 特殊状态学生列表
-     */
-    async getStudentsWithSpecialStatus() {
-        const allStudents = await this.operation('students', 'getAll');
-        return allStudents.filter(student => student.specialStatus && student.specialStatus !== 'normal');
-    }
 
-    /**
-     * 检查学生是否应被排除在抽取之外
-     * @param {number} studentId - 学生ID
-     * @param {string} algorithm - 当前算法类型
-     * @returns {Promise<boolean>} 是否应被排除
-     */
-    async shouldExcludeStudent(studentId, algorithm) {
-        // 在非完全随机模式下检查学生特殊状态
-        if (algorithm !== 'fair') {
-            const status = await this.getStudentSpecialStatus(studentId);
-            return status === 'special_excluded';
-        }
-        return false;
-    }
+
+
 
     // ==================== 系统日志功能 ====================
 
